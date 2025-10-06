@@ -143,8 +143,20 @@ async def launch_playwright_listing_local(data: dict = Body(...)):
 
             await page.goto("https://webepos.cashgenerator.co.uk")
             await page.wait_for_load_state("networkidle")
-            print("[OK] Logged in or existing session detected!", flush=True)
 
+            # Check if redirected to login
+            if "login" in page.url.lower():
+                print("[INFO] User not logged in — waiting for manual login...", flush=True)
+
+                # Wait for login to complete by detecting URL change
+                await page.wait_for_function(
+                    """() => !window.location.href.includes('/login')""",
+                    timeout=0  # wait indefinitely
+                )
+                print("[OK] Login detected — proceeding to product page...", flush=True)
+
+                # Give it a second for redirects/session init
+                await asyncio.sleep(2)
             await page.goto("https://webepos.cashgenerator.co.uk/products/new")
             await page.wait_for_load_state("networkidle")
 
@@ -185,7 +197,7 @@ async def launch_playwright_listing_local(data: dict = Body(...)):
 
             await page.wait_for_selector("button:has-text('Save Product')")
             await asyncio.sleep(3)
-            await page.click("button:has-text('Save Product')", force=True)
+            # await page.click("button:has-text('Save Product')", force=True)
 
             print("[OK] Clicked Save Product button.", flush=True)
 

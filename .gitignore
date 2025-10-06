@@ -2,4 +2,5 @@ __pycache__/
 playwright_user_data/
 python/Include
 python/Lib
+python/Scripts
 python/local-browsers

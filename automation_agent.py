@@ -63,11 +63,54 @@ async def scrape_barcodes_endpoint(data: dict = Body(...)):
         return {"success": False, "error": str(e)}
     
 
-# TODO: Maybe put this in a different file like the other endpoints?
+# TODO: Maybe put these two in a different file like the other endpoints?
 from pathlib import Path
 from playwright.async_api import async_playwright
 
 USER_DATA_DIR = Path(__file__).parent / "playwright_user_data"
+
+
+@app.post("/bulk-scrape-competitors")
+def bulk_scrape_competitors(data: dict = Body(...)):
+    """
+    Scrape competitor listings for multiple items.
+    Returns a list of results with success flags per item.
+    """
+    items = data.get("items", [])
+    if not items:
+        return {"success": False, "error": "No items provided"}
+
+    results = []
+    for item in items:
+        query = item.get("name") or item.get("market_item") or ""
+        if not query.strip():
+            results.append({
+                "barcode": item.get("barcode"),
+                "success": False,
+                "error": "Missing name or market_item"
+            })
+            continue
+
+        try:
+            # TODO: This function NEEDS to be renamed so BADLY
+            listings = save_prices(["CEX", "CashGenerator"], query)
+            results.append({
+                "barcode": item.get("barcode"),
+                "success": True,
+                "competitor_data": listings,
+                "competitor_count": len(listings),
+                "query_used": query,
+            })
+        except Exception as e:
+            results.append({
+                "barcode": item.get("barcode"),
+                "success": False,
+                "error": str(e)
+            })
+
+    return {"success": True, "results": results}
+
+
 
 @app.post("/launch-playwright-listing")
 async def launch_playwright_listing_local(data: dict = Body(...)):

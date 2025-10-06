@@ -82,7 +82,12 @@ def bulk_scrape_competitors(data: dict = Body(...)):
 
     results = []
     for item in items:
-        query = item.get("name") or item.get("market_item") or ""
+        query = (
+                item.get("search_term")  # Prefer AI-generated search term
+                or item.get("name")
+                or item.get("market_item")
+                or ""
+        )
         if not query.strip():
             results.append({
                 "barcode": item.get("barcode"),
@@ -93,7 +98,7 @@ def bulk_scrape_competitors(data: dict = Body(...)):
 
         try:
             # TODO: This function NEEDS to be renamed so BADLY
-            listings = save_prices(["CEX", "CashGenerator"], query)
+            listings = save_prices(["CEX", "CashGenerator", "eBay", "CashConverters"], query)
             results.append({
                 "barcode": item.get("barcode"),
                 "success": True,

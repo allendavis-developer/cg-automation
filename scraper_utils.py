@@ -117,8 +117,6 @@ def parse_query_string(query_string):
     return model or query_string, filters, search_string
 
 
-
-
 async def generic_scraper(
         url: str,
         competitor: str,
@@ -147,10 +145,16 @@ async def generic_scraper(
 
     prices, titles, store_names, urls = [], [], [], []
 
-    # --- Special case: Cash Converters needs per-card scraping ---
+    # --- Determine element selectors from config ---
+    config = SCRAPER_CONFIGS.get(competitor, {})
+    base_url = config.get("base_url", "")
+    url_selector = config.get("url_selector")
+    shop_class = shop_class or config.get("shop_class")
+
+    # --- Special case: CashConverters requires per-card scraping ---
     if competitor == "CashConverters":
         product_cards = await page.query_selector_all(".product-item-wrapper")
-        print(f"Found {len(product_cards)} product cards for Cash Converters")
+        print(f"Found {len(product_cards)} product cards for CashConverters")
 
         for card in product_cards:
             try:
@@ -163,7 +167,7 @@ async def generic_scraper(
                 price_text = (await price_node.inner_text()).strip() if price_node else None
                 price = parse_price(price_text) if price_text else None
 
-                # Store / location
+                # Store
                 store_node = await card.query_selector(shop_class) if shop_class else None
                 store = (await store_node.inner_text()).strip() if store_node else None
 
@@ -171,9 +175,8 @@ async def generic_scraper(
                 url_node = await card.query_selector("a")
                 href = await url_node.get_attribute("href") if url_node else None
                 if href and href.startswith("/"):
-                    href = SCRAPER_CONFIGS[competitor]["base_url"].rstrip("/") + href
+                    href = base_url.rstrip("/") + href
 
-                # Append if valid
                 if title and price:
                     titles.append(title)
                     prices.append(price)
@@ -181,7 +184,7 @@ async def generic_scraper(
                     urls.append(href)
 
             except Exception as e:
-                print(f"⚠️ Error parsing CC card: {e}")
+                print(f"⚠️ Error parsing CashConverters card: {e}")
                 continue
 
     else:
@@ -196,20 +199,80 @@ async def generic_scraper(
             "els => els.map(e => e.innerText.trim())"
         )
         prices = [parse_price(p) for p in prices_text if parse_price(p) is not None]
-        store_names = [None] * len(titles)
-        urls = [None] * len(titles)
+
+        title_elements = await page.query_selector_all(title_class)
+
+        # Store names extraction
+        store_names = []
+        if shop_class:
+            for t_elem in title_elements:
+                try:
+                    # First, try direct child
+                    shop_elem = await t_elem.query_selector(shop_class)
+                    store_text = (await shop_elem.inner_text()).strip() if shop_elem else None
+
+                    # If nothing, look in the parent container
+                    if not store_text:
+                        store_text = await t_elem.evaluate(f'''
+                            (el, sel) => {{
+                                let container = el.closest('.snize-overhidden, .product-item-wrapper, .card, article');
+                                if (!container) container = el.parentElement;
+                                const shop = container ? container.querySelector(sel) : null;
+                                return shop ? shop.innerText.replace(/\\s+/g, ' ').trim() : null;
+                            }}
+                        ''', shop_class)
+
+                    # Final clean-up: remove empty spans or whitespace
+                    if store_text:
+                        store_text = store_text.replace('\n', ' ').strip()
+                except Exception:
+                    store_text = None
+                store_names.append(store_text)
+        else:
+            store_names = [None] * len(titles)
+
+        # URL extraction
+        urls = []
+        if url_selector:
+            for t_elem in title_elements:
+                href = await t_elem.get_attribute('href')
+                if not href:
+                    a = await t_elem.query_selector('a')
+                    href = await a.get_attribute('href') if a else None
+                if not href:
+                    try:
+                        href = await t_elem.evaluate(
+                            '(el, sel) => { const q = el.querySelector(sel); if (q) return q.getAttribute("href"); const c = el.closest(sel); return c ? c.getAttribute("href") : null }',
+                            url_selector
+                        )
+                    except Exception:
+                        href = None
+
+                # Handle relative URLs
+                if href and href.startswith("/") and base_url:
+                    href = base_url.rstrip("/") + href
+                elif href and not href.startswith("http") and base_url:
+                    href = base_url.rstrip("/") + '/' + href
+
+                urls.append(href)
+
+            while len(urls) < len(titles):
+                urls.append(None)
+        else:
+            urls = [None] * len(titles)
 
     # --- Filtering ---
     if filter_listings:
-        filtered_prices, filtered_titles, filtered_stores = [], [], []
-        for price, title, store in zip(prices, titles, store_names):
+        filtered_prices, filtered_titles, filtered_stores, filtered_urls = [], [], [], []
+        for price, title, store, u in zip(prices, titles, store_names, urls):
             title_lower = title.lower()
             if model.lower() in title_lower:
                 if not exclude or not any(term.lower() in title_lower for term in exclude):
                     filtered_prices.append(price)
                     filtered_titles.append(title)
                     filtered_stores.append(store)
-        prices, titles, store_names = filtered_prices, filtered_titles, filtered_stores
+                    filtered_urls.append(u)
+        prices, titles, store_names, urls = filtered_prices, filtered_titles, filtered_stores, filtered_urls
 
     # --- Summary ---
     summary = summarise_prices(prices) if summarise_prices else {
@@ -224,6 +287,7 @@ async def generic_scraper(
         pass
 
     return prices, titles, store_names, urls, summary
+
 
 async def ebay_scraper(
         url: str,

@@ -98,7 +98,7 @@ def bulk_scrape_competitors(data: dict = Body(...)):
 
         try:
             # TODO: This function NEEDS to be renamed so BADLY
-            listings = save_prices(["CEX", "CashGenerator", "eBay", "CashConverters"], query)
+            listings = save_prices(["CashGenerator", "CashConverters"], query)
             results.append({
                 "barcode": item.get("barcode"),
                 "success": True,

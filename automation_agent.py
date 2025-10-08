@@ -51,6 +51,8 @@ async def scrape_barcodes_endpoint(data: dict = Body(...)):
 
     try:
         results = await scrape_barcodes(barcodes)
+        print("DEBUG: results=", results)  # check that specifications are included
+
 
         # Ensure the result shape matches frontend expectations
         return {
@@ -98,7 +100,7 @@ def bulk_scrape_competitors(data: dict = Body(...)):
 
         try:
             # TODO: This function NEEDS to be renamed so BADLY
-            listings = save_prices(["CashGenerator", "CashConverters"], query)
+            listings = save_prices(["CEX", "CashGenerator", "CashConverters"], query)
             results.append({
                 "barcode": item.get("barcode"),
                 "success": True,

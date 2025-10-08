@@ -127,11 +127,12 @@ async def scrape_barcodes(barcodes):
                         )
 
                         # Extract values in parallel
-                        name, description, cost_price, retail_price = await asyncio.gather(
+                        name, description, cost_price, retail_price, specifications = await asyncio.gather(
                             get_input_value(page, '#stock-name'),
                             get_input_value(page, '#stock-description'),
                             get_input_value(page, '#stock-cost_price'),
                             get_input_value(page, '#stock-retail_price'),
+                            get_specifications(page)
                         )
 
                         created_at, total_quantity, barserial, stock_type = await asyncio.gather(
@@ -140,8 +141,6 @@ async def scrape_barcodes(barcodes):
                             get_summary_detail(page, 'Barserial'),
                             get_summary_detail(page, 'Type'),
                         )
-
-                        # Print the key information
 
                         results.append({
                             "barcode": barcode,
@@ -152,9 +151,11 @@ async def scrape_barcodes(barcodes):
                             "retail_price": retail_price,
                             "created_at": created_at,
                             "quantity": total_quantity,
-                            "type": stock_type
+                            "type": stock_type,
+                            "specifications": specifications
                         })
 
+                        # Print the key information
                         print(f"Search Barcode: {barcode}")
                         print(f"  Barserial: {barserial}")
                         print(f"  Name: {name}")
@@ -164,7 +165,12 @@ async def scrape_barcodes(barcodes):
                         print(f"  Created At: {created_at}")
                         print(f"  Quantity: {total_quantity}")
                         print(f"  Type: {stock_type}")
+                        print("Specifications:")
+                        for field, data in specifications.items():
+                            print(f"  {field}: {data['value']} (Status: {data['status']}, Last Checked: {data['last_checked']})")
+
                         print("-" * 50)
+                   
 
                     except Exception as e:
                         print(f"[ERROR] Failed to extract data for {barcode}: {e}")
@@ -191,6 +197,7 @@ async def scrape_barcodes(barcodes):
             await browser.close()
             sys.exit(1)
 
+
 async def get_input_value(page, selector):
     """Get value from input field, return 'N/A' if empty or not found"""
     try:
@@ -199,6 +206,7 @@ async def get_input_value(page, selector):
         return value.strip() if value else 'N/A'
     except Exception:
         return 'N/A'
+
 
 async def get_summary_detail(page, label):
     """Extract data from the summary detail view card"""
@@ -220,6 +228,38 @@ async def get_summary_detail(page, label):
     except Exception as e:
         print(f"[DEBUG] Error getting '{label}': {e}")
         return 'N/A'
+
+
+async def get_specifications(page):
+    specs = {}
+    try:
+        await page.wait_for_selector('#w3 table.table tbody', timeout=3000)
+        rows = await page.query_selector_all('#w3 table.table tbody tr')
+
+        async def extract_row(row):
+            field = (await row.eval_on_selector('td:nth-child(1)', 'el => el.textContent.trim()')) or 'N/A'
+            
+            value_element = await row.query_selector('td:nth-child(2) a')
+            if value_element:
+                value = await value_element.text_content() or 'N/A'
+            else:
+                value = await row.eval_on_selector('td:nth-child(2)', 'el => el.textContent.trim()') or 'N/A'
+            
+            status = await row.eval_on_selector('td.status', 'el => el.textContent.trim()') or 'N/A'
+            last_checked = await row.eval_on_selector('td.last-checked', 'el => el.textContent.trim()') or 'N/A'
+            
+            # ensure all are strings
+            return str(field), {"value": str(value), "status": str(status), "last_checked": str(last_checked)}
+
+        results = await asyncio.gather(*(extract_row(r) for r in rows))
+        specs = dict(results)
+
+    except Exception as e:
+        print(f"[DEBUG] Error getting specifications: {e}")
+
+    return specs
+
+
 
 async def main():
     parser = argparse.ArgumentParser(description="Scrape NOSPOS for multiple barcodes")

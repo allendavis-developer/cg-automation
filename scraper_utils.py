@@ -9,9 +9,12 @@ IS_HEADLESS = False
 SCRAPER_CONFIGS = {
     "CashConverters": {
         "base_url": "https://www.cashconverters.co.uk",
-        "url": "https://www.cashconverters.co.uk/search-results?Sort=default&page=1"
-               "&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all"
-               "&query={query}",
+        "url": (
+            "https://www.cashconverters.co.uk/search-results?"
+            "Sort=price&page=1"
+            "&f%5Bcategory%5D%5B0%5D=all&f%5Blocations%5D%5B0%5D=all"
+            "&query={query}"
+        ),
         "price_class": ".product-item__price",
         "url_selector": ".product-item__title, .product-item__image a",
         "title_class": ".product-item__title__description",
@@ -23,7 +26,10 @@ SCRAPER_CONFIGS = {
 
     "CashGenerator": {
         "base_url": "https://cashgenerator.co.uk",
-        "url": "https://cashgenerator.co.uk/pages/search-results-page?q={query}",
+        "url": (
+            "https://cashgenerator.co.uk/pages/search-results-page?"
+            "q={query}&tab=products&sort_by=price&sort_order=asc&page=1"
+        ),
         "url_selector": ".snize-view-link",
         "price_class": ".snize-price.money",
         "title_class": ".snize-title",

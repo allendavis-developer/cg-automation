@@ -78,8 +78,9 @@ async def scrape_barcodes(barcodes):
                     await browser.close()
                     sys.exit(1)
                     
-                search_code = barcode[-4:] if len(barcode) > 4 else barcode
-                print(f"[INFO] [{i + 1}/{len(barcodes)}] Searching for barcode: {barcode} -> using {search_code}")
+                search_code = barcode
+                print(f"[INFO] [{i + 1}/{len(barcodes)}] Searching for barcode: {search_code}")
+
 
                 # Navigate to search page first (ensure clean state)
                 await page.goto("https://nospos.com/stock/search")
@@ -135,8 +136,9 @@ async def scrape_barcodes(barcodes):
                             get_specifications(page)
                         )
 
-                        created_at, total_quantity, barserial, stock_type = await asyncio.gather(
+                        created_at, bought_by, total_quantity, barserial, stock_type = await asyncio.gather(
                             get_summary_detail(page, 'Created'),
+                            get_summary_detail(page, 'Bought By'),
                             get_summary_detail(page, 'Total Quantity'),
                             get_summary_detail(page, 'Barserial'),
                             get_summary_detail(page, 'Type'),
@@ -150,28 +152,12 @@ async def scrape_barcodes(barcodes):
                             "cost_price": cost_price,
                             "retail_price": retail_price,
                             "created_at": created_at,
+                            "bought_by": bought_by,
                             "quantity": total_quantity,
                             "type": stock_type,
                             "specifications": specifications
                         })
-
-                        # Print the key information
-                        print(f"Search Barcode: {barcode}")
-                        print(f"  Barserial: {barserial}")
-                        print(f"  Name: {name}")
-                        print(f"  Description: {description}")
-                        print(f"  Cost Price: {cost_price}")
-                        print(f"  Retail Price: {retail_price}")
-                        print(f"  Created At: {created_at}")
-                        print(f"  Quantity: {total_quantity}")
-                        print(f"  Type: {stock_type}")
-                        print("Specifications:")
-                        for field, data in specifications.items():
-                            print(f"  {field}: {data['value']} (Status: {data['status']}, Last Checked: {data['last_checked']})")
-
-                        print("-" * 50)
                    
-
                     except Exception as e:
                         print(f"[ERROR] Failed to extract data for {barcode}: {e}")
                         await page.screenshot(path=f"debug_{barcode}.png")

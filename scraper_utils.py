@@ -41,7 +41,7 @@ SCRAPER_CONFIGS = {
 
     "CEX": {
         "base_url": "https://uk.webuy.com",
-        "url": "https://uk.webuy.com/search?stext={query}",
+        "url": "https://uk.webuy.com/search?stext={query}&Grade=B",
         "price_class": ".product-main-price",
         "title_class": ".card-title",
         "url_selector": ".card-title a",

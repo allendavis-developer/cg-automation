@@ -204,7 +204,7 @@ async def launch_playwright_listing_local(data: dict = Body(...)):
 
             await page.wait_for_selector("button:has-text('Save Product')")
             await asyncio.sleep(3)
-            # await page.click("button:has-text('Save Product')", force=True)
+            await page.click("button:has-text('Save Product')", force=True)
 
             print("[OK] Clicked Save Product button.", flush=True)
 

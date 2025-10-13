@@ -2,7 +2,7 @@
 import statistics
 import sys, os, asyncio
 
-from playwright.async_api import async_playwright
+import playwright_manager
 
 IS_HEADLESS = False
 
@@ -456,6 +456,7 @@ async def ebay_scraper(
 
     return prices, titles, urls, summary
 
+
 async def _scrape_competitor(browser_context, competitor, search_string, exclude, filter_listings, summarise_prices):
     config = SCRAPER_CONFIGS[competitor]
     # Parse the query string to extract model and filters
@@ -492,33 +493,30 @@ async def _scrape_competitor(browser_context, competitor, search_string, exclude
     return competitor, prices, titles, store_names, urls, summary
 
 
-def save_prices(competitors, search_string, exclude=None, filter_listings=None, summarise_prices=None):
+async def save_prices(competitors, search_string, exclude=None, filter_fn=None, summarise_fn=None):
     """
-    Run scraping for one or more competitors in parallel using a shared browser.
-    Returns a flat list of listings that your frontend can use directly.
+    Run scraping for one or more competitors in parallel using a shared browser context.
+    Returns a flat list of listings.
     """
+    # always access the current value from the module
+    context = playwright_manager.context_instance
+    if not context:
+        raise RuntimeError("No active Playwright context.")
+
     if isinstance(competitors, str):
         competitors = [competitors]
 
     async def run_all():
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=IS_HEADLESS,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-            )
-            context = await browser.new_context()
-            tasks = [
-                _scrape_competitor(context, comp, search_string, exclude, filter_listings, summarise_prices)
-                for comp in competitors
-            ]
-            results = await asyncio.gather(*tasks)
-            await browser.close()
-            return results
+        tasks = [
+            _scrape_competitor(context, comp, search_string, exclude, filter_fn, summarise_fn)
+            for comp in competitors
+        ]
+        results = await asyncio.gather(*tasks)
+        return results
 
-    results = asyncio.run(run_all())
+    results = await run_all()
 
     all_listings = []
-
     for competitor, prices, titles, store_names, urls, summary in results:
         for price, title, store, url in zip(prices, titles, store_names, urls):
             all_listings.append({
@@ -526,11 +524,11 @@ def save_prices(competitors, search_string, exclude=None, filter_listings=None, 
                 "title": title,
                 "price": price,
                 "store": store,
-                "url": url
+                "url": url,
+                "summary": summary
             })
 
     return all_listings
-
 
 def parse_price(text):
     """

@@ -1,3 +1,5 @@
+.idea/
+.venv/
 __pycache__/
 playwright_user_data/
 python/Include

@@ -180,27 +180,165 @@ async def launch_playwright_listing_persistent(data: dict = Body(...)):
         await page.select_option("#grade", "B")
 
         await page.wait_for_selector("button:has-text('Save Product')")
-        print("[READY] Waiting for user to finish — page will close after navigation away from 'New Product' page.",
-              flush=True)
+
+        print("[READY] Waiting for user to save product...", flush=True)
+
         try:
-            # Wait until the user navigates away from the 'new product' URL
-            await page.wait_for_function(
-                """() => !window.location.href.includes('/products/new')""",
-                timeout=0  # wait indefinitely until user leaves the page
+            # Coroutine to detect saving completion
+            async def wait_for_save():
+                await page.wait_for_selector("text=Saving...", timeout=0)  # appears after click
+                await page.wait_for_selector("text=Saving...", state="detached", timeout=0)  # disappears when done
+                return "saved"
+
+            # Coroutine to detect user navigating away before saving
+            async def wait_for_navigation():
+                await page.wait_for_function(
+                    """() => !window.location.href.includes('/products/new')""",
+                    timeout=0
+                )
+                return "navigated_away"
+
+            # Create tasks from the coroutines
+            save_task = asyncio.create_task(wait_for_save())
+            nav_task = asyncio.create_task(wait_for_navigation())
+
+            done, pending = await asyncio.wait(
+                [save_task, nav_task],
+                return_when=asyncio.FIRST_COMPLETED
             )
-            print("[OK] Detected navigation away from product creation page.", flush=True)
+
+            # Cancel whichever coroutine is still running
+            for task in pending:
+                task.cancel()
+
+            result = list(done)[0].result()
+            if result == "saved":
+                print("[OK] Product saved successfully", flush=True)
+                success = True
+                message = "Listing saved successfully."
+            else:
+                print("[WARN] User navigated away before saving", flush=True)
+                success = False
+                message = "Listing failed — user navigated away before saving."
+
         except Exception as e:
-            print(f"[WARN] Timeout or navigation issue: {e}", flush=True)
+            print(f"[ERROR] Issue detecting save or navigation: {e}", flush=True)
+            success = False
+            message = f"Listing failed — {e}"
 
-        await asyncio.sleep(2)
-        await page.close()
+        finally:
+            await asyncio.sleep(2)
+            await page.close()
 
-        return {"success": True, "message": "User navigated away — automation finished successfully."}
+        if serial_number and success:
+            try:
+                # Open a new page for NOSPOS
+                nospos_page = await playwright_manager.context_instance.new_page()
+                await nospos_page.goto("https://nospos.com/stock/search")
+                await nospos_page.wait_for_load_state("networkidle")
 
-    except Exception as e:
-        print(f"[ERROR] {e}", flush=True)
-        try:
-            await page.screenshot(path="debug_listing_error.png")
-        except:
-            pass
-        return {"success": False, "error": str(e)}
+                # Wait for login if needed
+                if "login" in nospos_page.url.lower():
+                    print("[INFO] Please log in to NOSPOS manually...")
+                    try:
+                        await nospos_page.wait_for_url("**/nospos.com/**", timeout=0)
+                        print("[OK] NOSPOS login detected, proceeding...")
+                    except Exception as e:
+                        print(f"[ERROR] Login interrupted: {e}")
+
+                # Handle intermediate landing pages before reaching /stock/search
+                print("[INFO] Waiting for intermediate pages to finish...")
+                max_checks = 60
+                checks = 0
+                while checks < max_checks:
+                    if nospos_page.is_closed():
+                        print("[ERROR] NOSPOS page closed by user during intermediate page wait")
+                        break
+
+                    current_url = nospos_page.url.rstrip("/")
+                    if current_url == "https://nospos.com":
+                        print("[INFO] Redirecting to /stock/search from main landing page...")
+                        await nospos_page.goto("https://nospos.com/stock/search")
+                        await nospos_page.wait_for_load_state("networkidle")
+                        break
+                    elif "/stock/search" in current_url:
+                        print("[INFO] Already on /stock/search page, ready to proceed")
+                        break
+                    else:
+                        await asyncio.sleep(1)
+                        checks += 1
+                else:
+                    print("[WARN] Timeout waiting for intermediate pages; proceeding anyway")
+
+                # Navigate to search page cleanly
+                await nospos_page.goto("https://nospos.com/stock/search")
+                await nospos_page.wait_for_load_state("networkidle")
+                await asyncio.sleep(1)
+
+                # Fill the barcode and press Enter
+                await nospos_page.fill("input#stocksearchandfilter-query", serial_number)
+                try:
+                    async with nospos_page.expect_navigation(timeout=10000) as nav_info:
+                        await nospos_page.press("input#stocksearchandfilter-query", "Enter")
+                    await nav_info.value
+                    await nospos_page.wait_for_load_state("networkidle")
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    print(f"[WARN] Navigation timeout/error for barcode {serial_number}: {e}")
+                    await nospos_page.wait_for_load_state("networkidle")
+                    await asyncio.sleep(2)
+
+                # Ensure we are on the edit/item page
+                current_url = nospos_page.url
+                is_edit_page = False
+                if "/stock/" in current_url:
+                    try:
+                        await asyncio.gather(
+                            nospos_page.wait_for_selector("#stock-name", timeout=5000),
+                            nospos_page.wait_for_selector(".detail-view", timeout=5000)
+                        )
+                        is_edit_page = True
+                    except Exception:
+                        is_edit_page = False
+
+                if is_edit_page:
+                    print(f"[OK] NOSPOS item page opened for barcode {serial_number}")
+                    # Tick the "Externally Listed" checkbox
+                    try:
+                        checkbox_selector = "input#stock-externally_listed_at"
+                        checkbox = await nospos_page.query_selector(checkbox_selector)
+                        if checkbox:
+                            await nospos_page.click("label[for='stock-externally_listed_at']")
+                            print("[OK] 'Externally Listed' checkbox clicked via label")
+
+                            # Click the Save button
+                            save_button_selector = "button.btn.btn-blue[type='submit']"
+                            await nospos_page.click(save_button_selector)
+                            print("[OK] Save button clicked")
+                            
+                            # Optional: wait until navigation or confirmation
+                            await nospos_page.wait_for_load_state("networkidle")
+                            await asyncio.sleep(1)
+
+                        else:
+                            print("[WARN] Could not find 'Externally Listed' checkbox")
+                    except Exception as e:
+                        print(f"[ERROR] Checking 'Externally Listed': {e}")
+
+                    # Close the NOSPOS page after ticking
+                    await asyncio.sleep(1)  # optional short delay
+                    await nospos_page.close()
+                    print("[INFO] NOSPOS page closed after ticking checkbox")
+
+                else:
+                    print(f"[WARN] Unexpected page after search. URL: {nospos_page.url}")
+
+            except Exception as e:
+                print(f"[ERROR] Opening NOSPOS item: {e}")
+
+        return {"success": success, "message": message}
+
+    except Exception as e:  # outer except - ✓ correct indentation
+        # handle main automation errors
+        return {"success": False, "message": str(e)}
+

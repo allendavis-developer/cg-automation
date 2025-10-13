@@ -118,12 +118,13 @@ async def scrape_barcodes(barcodes):
                     )
 
                     # Extract values in parallel
-                    name, description, cost_price, retail_price, specifications = await asyncio.gather(
+                    name, description, cost_price, retail_price, specifications, branch_name = await asyncio.gather(
                         get_input_value(page, '#stock-name'),
                         get_input_value(page, '#stock-description'),
                         get_input_value(page, '#stock-cost_price'),
                         get_input_value(page, '#stock-retail_price'),
-                        get_specifications(page)
+                        get_specifications(page),
+                        get_branch_name(page)
                     )
 
                     created_at, bought_by, total_quantity, barserial, stock_type = await asyncio.gather(
@@ -145,7 +146,8 @@ async def scrape_barcodes(barcodes):
                         "bought_by": bought_by,
                         "quantity": total_quantity,
                         "type": stock_type,
-                        "specifications": specifications
+                        "specifications": specifications,
+                        "branch": branch_name
                     })
 
                 except Exception as e:
@@ -235,6 +237,17 @@ async def get_specifications(page):
 
     return specs
 
+
+async def get_branch_name(page):
+    """Extracts the branch name from the top navigation"""
+    try:
+        await page.wait_for_selector('a[href="#select-branch-modal"] span', timeout=3000)
+        element = await page.query_selector('a[href="#select-branch-modal"] span')
+        text = await element.text_content()
+        return text.strip() if text else "N/A"
+    except Exception as e:
+        print(f"[DEBUG] Could not get branch name: {e}")
+        return "N/A"
 
 
 async def main():

@@ -83,6 +83,13 @@ from pathlib import Path
 
 USER_DATA_DIR = Path(__file__).parent / "playwright_user_data"
 
+BRANCH_TO_STORE = {
+    "Warrington": "4157a468-0220-45a4-bd51-e3dffe2ce7f0",
+    "Netherton": "604d760c-7742-4861-ae64-344c3a343b07",
+    "Wythenshawe": "2124b7c4-5013-424f-ad03-f49b0d2f4efa",
+    "Toxteth": "289123c4-d483-4fc1-b36f-8c6534121f0d"
+}
+
 
 @app.post("/launch-playwright-listing")
 async def launch_playwright_listing_persistent(data: dict = Body(...)):
@@ -93,6 +100,9 @@ async def launch_playwright_listing_persistent(data: dict = Body(...)):
     description = data.get("description", "").strip()
     price = data.get("price", "").strip()
     serial_number = data.get("serial_number", "").strip()
+    branch = data.get("branch", "").strip() 
+
+    print(branch)
 
     if not all([item_name, description, price]):
         print("Missing required fields")
@@ -148,7 +158,11 @@ async def launch_playwright_listing_persistent(data: dict = Body(...)):
 
         # Fill product details
         await page.fill("#title", item_name)
-        await page.select_option("#storeId", "4157a468-0220-45a4-bd51-e3dffe2ce7f0")
+
+        store_id = BRANCH_TO_STORE.get(branch, "4157a468-0220-45a4-bd51-e3dffe2ce7f0")  # fallback to Warrington
+        await page.select_option("#storeId", store_id)
+        print(f"[OK] Store set to {branch}", flush=True)
+
         await page.fill('textarea[name="intro"]', description)
 
         if price.replace('.', '', 1).isdigit():
